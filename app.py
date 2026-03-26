@@ -2,21 +2,25 @@ import os
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from PIL import Image
-import pytesseract
+import numpy as np
+import easyocr
 import google.generativeai as genai
 
 app = Flask(__name__)
-app.secret_key = "my_secret_key_786" # Isse badal sakte hain
+app.secret_key = "my_secret_key_786"
 
 # Database Setup
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
 db = SQLAlchemy(app)
 
-# Gemini AI Setup (Yahan apni API Key dalein)
+# Gemini AI Setup (Replace with your actual API Key)
 genai.configure(api_key="YOUR_GEMINI_API_KEY")
 model = genai.GenerativeModel('gemini-pro')
 
-# User Table
+# Initialize EasyOCR (English and Hindi support)
+reader = easyocr.Reader(['en', 'hi'])
+
+# User Table for Accounts
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
@@ -46,20 +50,30 @@ def login():
 
 @app.route('/dashboard', methods=['GET', 'POST'])
 def dashboard():
-    if 'user_id' not in session: return redirect(url_for('login'))
+    if 'user_id' not in session: 
+        return redirect(url_for('login'))
     
     extracted_text = ""
     if request.method == 'POST':
         file = request.files['file']
         if file:
+            # Image process karna
             img = Image.open(file)
-            extracted_text = pytesseract.image_to_string(img)
+            img_np = np.array(img)
+            
+            # EasyOCR se text nikalna
+            results = reader.readtext(img_np)
+            extracted_text = " ".join([res[1] for res in results])
+            
     return render_template('dashboard.html', text=extracted_text)
 
 @app.route('/summarize', methods=['POST'])
 def summarize():
     data = request.json
     raw_text = data.get('text')
+    if not raw_text:
+        return jsonify({"summary": "No text found to summarize."})
+        
     response = model.generate_content(f"Summarize this text clearly: {raw_text}")
     return jsonify({"summary": response.text})
 
